@@ -1,0 +1,11 @@
+# Runtime data — contains registrants' names and emails
+data.json
+data.json.tmp
+
+# Secrets
+.env
+.env.*
+
+node_modules/
+.DS_Store
+*.log

@@ -1,0 +1,14 @@
+{
+  "name": "pilates-booking",
+  "version": "1.0.0",
+  "description": "Register for pilates classes; admin panel to add and edit classes",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "private": true,
+  "license": "UNLICENSED"
+}

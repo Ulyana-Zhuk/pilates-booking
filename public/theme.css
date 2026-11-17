@@ -1,0 +1,25 @@
+:root {
+  color-scheme: light;
+  --bg: #faf6f1; --card: #fff; --ink: #2b2723; --muted: #7a726a;
+  --accent: #b5654a; --accent-ink: #fff; --line: #e8dfd5; --ok: #3d7a54; --bad: #b3372f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1b1815; --card: #26221e; --ink: #f1ebe4; --muted: #a79d92; --line: #3a342e;
+    --accent: #d98468; --accent-ink: #1b1815; --ok: #7cc79a; --bad: #ef8a82;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1b1815; --card: #26221e; --ink: #f1ebe4; --muted: #a79d92; --line: #3a342e;
+  --accent: #d98468; --accent-ink: #1b1815; --ok: #7cc79a; --bad: #ef8a82;
+}
+
+.theme-toggle {
+  position: fixed; top: 12px; right: 12px; z-index: 10;
+  width: 40px; height: 40px; padding: 0; border-radius: 50%;
+  border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  font-size: 1.1rem; line-height: 1; cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--accent); }

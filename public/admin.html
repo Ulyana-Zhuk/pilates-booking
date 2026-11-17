@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pilates Studio — Admin</title>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,sans-serif; }
+  main { max-width:820px; margin:0 auto; padding:24px 16px 64px; }
+  .top { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  h1 { margin:0; font-size:1.5rem; } h2 { font-size:.85rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:24px 0 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 16px; margin-bottom:10px; }
+  .card .head { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .time { font-weight:600; min-width:56px; } .info { flex:1; min-width:160px; } .info b { display:block; }
+  .meta { color:var(--muted); font-size:.88rem; }
+  details { margin-top:8px; font-size:.9rem; } summary { cursor:pointer; color:var(--muted); }
+  details ul { margin:6px 0 0; padding-left:20px; }
+  button { font:inherit; cursor:pointer; border-radius:8px; padding:8px 14px; }
+  .primary { background:var(--accent); color:var(--accent-ink); border:0; font-weight:600; }
+  .ghost { background:none; border:1px solid var(--line); color:var(--ink); }
+  .danger { background:none; border:1px solid var(--bad); color:var(--bad); }
+  button:disabled { opacity:.5; cursor:not-allowed; }
+  dialog { border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--ink); padding:24px; width:min(440px,calc(100vw - 32px)); }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  form { display:grid; gap:12px; } label { display:grid; gap:4px; font-size:.9rem; }
+  input { font:inherit; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--ink); }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .row { display:flex; gap:8px; justify-content:flex-end; } .err { color:var(--bad); min-height:1.2em; margin:0; font-size:.9rem; }
+  #login { max-width:340px; margin:80px auto; } .empty { color:var(--muted); text-align:center; padding:24px; }
+  .past { opacity:.55; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" type="button" aria-label="Toggle dark mode"></button>
+<main>
+  <!-- login -->
+  <section id="login" hidden>
+    <h1>Admin login</h1>
+    <form id="login-form" style="margin-top:16px">
+      <label>Password <input type="password" id="pw" required autocomplete="current-password"></label>
+      <p class="err" id="login-err"></p>
+      <button class="primary">Sign in</button>
+    </form>
+    <p class="meta"><a href="/">← Back to booking page</a></p>
+  </section>
+
+  <!-- panel -->
+  <section id="panel" hidden>
+    <div class="top">
+      <h1>Manage classes</h1>
+      <div class="row">
+        <label style="display:flex;gap:6px;align-items:center;grid-auto-flow:column"><input type="checkbox" id="show-past" style="padding:0"> Show past</label>
+        <button class="primary" id="add">+ Add class</button>
+        <a href="/" class="ghost" style="padding:8px 14px;border-radius:8px;border:1px solid var(--line);color:inherit;text-decoration:none">View site</a>
+        <button class="ghost" id="logout">Log out</button>
+      </div>
+    </div>
+    <p class="err" id="list-err"></p>
+    <div id="list"></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <h3 id="dlg-title" style="margin:0 0 12px"></h3>
+  <form id="cls-form" method="dialog">
+    <label>Title <input id="f-title" required maxlength="100" placeholder="Mat Pilates"></label>
+    <div class="two">
+      <label>Level <input id="f-level" required maxlength="50" placeholder="All levels"></label>
+      <label>Instructor <input id="f-instructor" required maxlength="100"></label>
+    </div>
+    <label>Date & time <input id="f-start" type="datetime-local" required></label>
+    <div class="two">
+      <label>Duration (min) <input id="f-duration" type="number" min="10" max="240" value="55" required></label>
+      <label>Capacity <input id="f-capacity" type="number" min="1" max="100" value="10" required></label>
+    </div>
+    <p class="err" id="cls-err"></p>
+    <div class="row"><button type="button" class="ghost" id="dlg-cancel">Cancel</button><button class="primary" id="cls-save">Save</button></div>
+  </form>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDay = d => new Date(d).toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+const fmtTime = d => new Date(d).toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' });
+const toLocalInput = iso => { const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+let classes = [], editingId = null;
+
+async function api(path, method = 'GET', body) {
+  const r = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : {}, body: body && JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401 && path !== '/api/admin/login') { showLogin(); throw new Error(data.error); }
+  if (!r.ok) throw new Error(data.error || 'Something went wrong');
+  return data;
+}
+function showLogin() { $('#panel').hidden = true; $('#login').hidden = false; }
+async function showPanel() { $('#login').hidden = true; $('#panel').hidden = false; await load(); }
+
+async function load() {
+  $('#list-err').textContent = '';
+  try { classes = await api('/api/admin/classes'); } catch (e) { return; }
+  render();
+}
+function render() {
+  const showPast = $('#show-past').checked, now = Date.now();
+  const list = classes.filter(c => showPast || new Date(c.start) > now);
+  const byDay = {};
+  list.forEach(c => (byDay[fmtDay(c.start)] ||= []).push(c));
+  $('#list').innerHTML = Object.entries(byDay).map(([day, items]) => `<h2>${esc(day)}</h2>` + items.map(c => `
+    <div class="card ${new Date(c.start) <= now ? 'past' : ''}">
+      <div class="head">
+        <div class="time">${fmtTime(c.start)}</div>
+        <div class="info"><b>${esc(c.title)}</b><span class="meta">${esc(c.level)} · ${esc(c.instructor)} · ${c.durationMin} min · ${c.registrations.length}/${c.capacity} booked</span></div>
+        <button class="ghost" data-edit="${esc(c.id)}">Edit</button>
+        <button class="danger" data-del="${esc(c.id)}">Delete</button>
+      </div>
+      ${c.registrations.length ? `<details><summary>${c.registrations.length} registered</summary><ul>${c.registrations.map(r => `<li>${esc(r.name)} — ${esc(r.email)}</li>`).join('')}</ul></details>` : ''}
+    </div>`).join('')).join('') || '<p class="empty">No classes.</p>';
+}
+
+function openForm(c) {
+  editingId = c ? c.id : null;
+  $('#dlg-title').textContent = c ? 'Edit class' : 'Add class';
+  $('#f-title').value = c?.title || ''; $('#f-level').value = c?.level || 'All levels';
+  $('#f-instructor').value = c?.instructor || '';
+  $('#f-start').value = c ? toLocalInput(c.start) : '';
+  $('#f-duration').value = c?.durationMin || 55; $('#f-capacity').value = c?.capacity || 10;
+  $('#cls-err').textContent = ''; $('#dlg').showModal(); $('#f-title').focus();
+}
+$('#add').onclick = () => openForm(null);
+$('#dlg-cancel').onclick = () => $('#dlg').close();
+$('#list').addEventListener('click', async e => {
+  const edit = e.target.dataset.edit, del = e.target.dataset.del;
+  if (edit) openForm(classes.find(c => c.id === edit));
+  if (del) {
+    const c = classes.find(c => c.id === del);
+    const n = c.registrations.length;
+    if (!confirm(`Delete "${c.title}" on ${fmtDay(c.start)} at ${fmtTime(c.start)}?` + (n ? `\n\n${n} registered ${n === 1 ? 'person' : 'people'} will lose their booking. This cannot be undone.` : '\n\nThis cannot be undone.'))) return;
+    try { await api('/api/admin/classes/' + del, 'DELETE'); load(); } catch (err) { $('#list-err').textContent = err.message; }
+  }
+});
+$('#show-past').onchange = render;
+
+$('#cls-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = $('#cls-save'); btn.disabled = true; $('#cls-err').textContent = '';
+  const body = {
+    title: $('#f-title').value, level: $('#f-level').value, instructor: $('#f-instructor').value,
+    start: new Date($('#f-start').value).toISOString(),
+    durationMin: Number($('#f-duration').value), capacity: Number($('#f-capacity').value),
+  };
+  try {
+    await api(editingId ? '/api/admin/classes/' + editingId : '/api/admin/classes', editingId ? 'PUT' : 'POST', body);
+    $('#dlg').close(); load();
+  } catch (err) { $('#cls-err').textContent = err.message; }
+  btn.disabled = false;
+});
+
+$('#login-form').addEventListener('submit', async e => {
+  e.preventDefault(); $('#login-err').textContent = '';
+  try { await api('/api/admin/login', 'POST', { password: $('#pw').value }); $('#pw').value = ''; showPanel(); }
+  catch (err) { $('#login-err').textContent = err.message; }
+});
+$('#logout').onclick = async () => { await api('/api/admin/logout', 'POST').catch(() => {}); showLogin(); };
+
+fetch('/api/admin/me').then(r => r.ok ? showPanel() : showLogin());
+</script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pilates Studio — Book a Class</title>
+<link rel="stylesheet" href="theme.css">
+<script src="theme.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, sans-serif; }
+  header { padding: 40px 16px 24px; text-align: center; }
+  h1 { margin: 0 0 4px; font-size: 2rem; letter-spacing: -.02em; }
+  header p { margin: 0; color: var(--muted); }
+  main { max-width: 760px; margin: 0 auto; padding: 0 16px 64px; }
+  .tabs { display: flex; gap: 8px; justify-content: center; margin-bottom: 24px; }
+  .tabs button { background: none; border: 1px solid var(--line); color: var(--ink); padding: 8px 18px; border-radius: 999px; cursor: pointer; font: inherit; }
+  .tabs button[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  h2 { font-size: .85rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 28px 0 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; display: flex; gap: 16px; align-items: center; }
+  .time { font-weight: 600; min-width: 56px; }
+  .info { flex: 1; min-width: 0; }
+  .info b { display: block; }
+  .meta { color: var(--muted); font-size: .88rem; }
+  .spots { font-size: .85rem; white-space: nowrap; }
+  .spots.low { color: var(--bad); } .spots.ok { color: var(--ok); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border: 0; padding: 9px 18px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .4; cursor: not-allowed; }
+  button.ghost { background: none; border: 1px solid var(--line); color: var(--ink); padding: 9px 18px; border-radius: 8px; font: inherit; cursor: pointer; }
+  dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--ink); padding: 24px; width: min(420px, calc(100vw - 32px)); }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog h3 { margin: 0 0 4px; } dialog form { display: grid; gap: 12px; margin-top: 16px; }
+  label { display: grid; gap: 4px; font-size: .9rem; }
+  input { font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+  .err { color: var(--bad); min-height: 1.2em; font-size: .9rem; margin: 0; }
+  .lookup { display: flex; gap: 8px; margin-bottom: 16px; } .lookup input { flex: 1; }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  .empty { color: var(--muted); text-align: center; padding: 24px; }
+  @media (max-width: 480px) { .card { flex-wrap: wrap; } .time { min-width: 0; } }
+</style>
+</head>
+<body>
+<button class="theme-toggle" type="button" aria-label="Toggle dark mode"></button>
+<header>
+  <h1>🧘 Pilates Studio</h1>
+  <p>Pick a class and reserve your spot.</p>
+</header>
+<main>
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tab-classes" aria-selected="true">Classes</button>
+    <button role="tab" id="tab-mine" aria-selected="false">My bookings</button>
+  </div>
+
+  <section id="view-classes"></section>
+
+  <section id="view-mine" hidden>
+    <form class="lookup" id="lookup">
+      <input type="email" id="lookup-email" placeholder="Your email" required autocomplete="email">
+      <button class="primary">Show</button>
+    </form>
+    <p class="err" id="lookup-err"></p>
+    <div id="mine-list"></div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <h3 id="dlg-title"></h3>
+  <div class="meta" id="dlg-meta"></div>
+  <form id="reg-form" method="dialog">
+    <label>Name <input id="f-name" required maxlength="100" autocomplete="name"></label>
+    <label>Email <input id="f-email" type="email" required autocomplete="email"></label>
+    <p class="err" id="reg-err"></p>
+    <div class="row">
+      <button type="button" class="ghost" id="dlg-cancel">Close</button>
+      <button class="primary" id="reg-submit">Reserve spot</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDay = d => new Date(d).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+const fmtTime = d => new Date(d).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+let classes = [], current = null;
+
+async function api(path, opts) {
+  const r = await fetch(path, opts && { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opts) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || 'Something went wrong');
+  return data;
+}
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2800); }
+
+function spotsHtml(c) {
+  if (c.spotsLeft <= 0) return '<span class="spots low">Full</span>';
+  return `<span class="spots ${c.spotsLeft <= 3 ? 'low' : 'ok'}">${c.spotsLeft} spot${c.spotsLeft === 1 ? '' : 's'} left</span>`;
+}
+function cardHtml(c, action) {
+  return `<div class="card">
+    <div class="time">${fmtTime(c.start)}</div>
+    <div class="info"><b>${esc(c.title)}</b><span class="meta">${esc(c.level)} · ${esc(c.instructor)} · ${c.durationMin} min</span></div>
+    ${action === 'book' ? spotsHtml(c) + `<button class="primary" data-book="${esc(c.id)}" ${c.spotsLeft <= 0 ? 'disabled' : ''}>Book</button>`
+                         : `<button class="ghost" data-cancel="${esc(c.id)}">Cancel</button>`}
+  </div>`;
+}
+
+async function loadClasses() {
+  try { classes = await api('/api/classes'); } catch (e) { $('#view-classes').innerHTML = `<p class="empty">${esc(e.message)}</p>`; return; }
+  const byDay = {};
+  classes.forEach(c => (byDay[fmtDay(c.start)] ||= []).push(c));
+  $('#view-classes').innerHTML = Object.entries(byDay).map(([day, list]) =>
+    `<h2>${esc(day)}</h2>` + list.map(c => cardHtml(c, 'book')).join('')).join('') || '<p class="empty">No upcoming classes.</p>';
+}
+
+$('#view-classes').addEventListener('click', e => {
+  const id = e.target.dataset.book; if (!id) return;
+  current = classes.find(c => c.id === id);
+  $('#dlg-title').textContent = current.title;
+  $('#dlg-meta').textContent = `${fmtDay(current.start)} at ${fmtTime(current.start)} · ${current.instructor}`;
+  $('#reg-err').textContent = '';
+  $('#f-email').value = localStorage.getItem('email') || '';
+  $('#f-name').value = localStorage.getItem('name') || '';
+  $('#dlg').showModal(); $('#f-name').focus();
+});
+$('#dlg-cancel').onclick = () => $('#dlg').close();
+
+$('#reg-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const btn = $('#reg-submit'); btn.disabled = true; $('#reg-err').textContent = '';
+  try {
+    const name = $('#f-name').value, email = $('#f-email').value;
+    await api(`/api/classes/${current.id}/register`, { name, email });
+    localStorage.setItem('name', name); localStorage.setItem('email', email);
+    $('#dlg').close(); toast('You\'re booked! See you on the mat 🎉');
+    loadClasses();
+  } catch (err) { $('#reg-err').textContent = err.message; }
+  btn.disabled = false;
+});
+
+// tabs
+function showTab(mine) {
+  $('#tab-classes').setAttribute('aria-selected', !mine); $('#tab-mine').setAttribute('aria-selected', mine);
+  $('#view-classes').hidden = mine; $('#view-mine').hidden = !mine;
+  if (mine) { $('#lookup-email').value ||= localStorage.getItem('email') || ''; if ($('#lookup-email').value) loadMine(); }
+  else loadClasses();
+}
+$('#tab-classes').onclick = () => showTab(false);
+$('#tab-mine').onclick = () => showTab(true);
+
+async function loadMine() {
+  $('#lookup-err').textContent = '';
+  try {
+    const list = await api('/api/bookings?email=' + encodeURIComponent($('#lookup-email').value));
+    $('#mine-list').innerHTML = list.map(c => `<h2>${esc(fmtDay(c.start))}</h2>` + cardHtml(c, 'cancel')).join('') || '<p class="empty">No upcoming bookings for this email.</p>';
+  } catch (e) { $('#lookup-err').textContent = e.message; }
+}
+$('#lookup').addEventListener('submit', e => { e.preventDefault(); loadMine(); });
+$('#mine-list').addEventListener('click', async e => {
+  const id = e.target.dataset.cancel; if (!id) return;
+  if (!confirm('Cancel this booking?')) return;
+  try { await api(`/api/classes/${id}/cancel`, { email: $('#lookup-email').value }); toast('Booking cancelled'); loadMine(); }
+  catch (err) { $('#lookup-err').textContent = err.message; }
+});
+
+loadClasses();
+</script>
+</body>
+</html>
